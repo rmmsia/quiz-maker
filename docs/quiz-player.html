@@ -429,9 +429,22 @@ function showSummary() {
     const ok = rec && rec.isCorrect;
     const div = document.createElement('div');
     div.className = 'summary-item';
-    div.innerHTML = `<div><strong>Q${idx+1}.</strong> ${escapeHtml(q.question)}</div>
-      <div class="small">Status: ${ok ? '<span style="color:green">Correct</span>' : '<span style="color:red">Not answered / Incorrect</span>'}</div>`;
-    if (rec && rec.explanation) div.innerHTML += `<div class="small">Explanation: ${escapeHtml(rec.explanation)}</div>`;
+    let html = `<div><strong>Q${idx+1}.</strong> ${escapeHtml(q.question)}</div>`;
+    html += `<div class="small">Status: ${ok ? '<span style="color:green">Correct</span>' : '<span style="color:red">Not answered / Incorrect</span>'}</div>`;
+
+    // Show answers and explanation
+    const correctAns = (q.correct || []).map(i => q.options[i]).join(', ');
+    const userAns = rec && rec.selected && rec.selected.length > 0 ? rec.selected.map(i => q.options[i]).join(', ') : '(no answer)';
+
+    if (ok) {
+      html += `<div class="small">Correct answer: ${escapeHtml(correctAns)}</div>`;
+      if (rec && rec.explanation) html += `<div class="small">Explanation: ${escapeHtml(rec.explanation)}</div>`;
+    } else {
+      html += `<div class="small">Your answer: ${escapeHtml(userAns)}</div>`;
+      html += `<div class="small">Correct answer: ${escapeHtml(correctAns)}</div>`;
+      if (rec && rec.explanation) html += `<div class="small">Explanation: ${escapeHtml(rec.explanation)}</div>`;
+    }
+    div.innerHTML = html;
     list.appendChild(div);
   });
   resultSummary.appendChild(list);
