@@ -45,8 +45,8 @@
   <div id="optionsContainer"></div>
   <button onclick="addOption()">Add Option</button>
 
-  <h3>Correct Answer</h3>
-  <select id="correctSelect"></select>
+  <h3>Correct Answer(s)</h3>
+  <div id="correctSelectContainer"></div>
 
   <h3>Topic (optional)</h3>
   <input id="topic" type="text" style="width:100%;">
@@ -64,6 +64,7 @@
 <button onclick="exportJSON()" style="background:#4CAF50; color:white;">Export JSON</button>
 
 <script>
+
 let questions = [];
 let optionCount = 0;
 
@@ -72,7 +73,6 @@ function addOption() {
   optionCount++;
 
   const container = document.getElementById("optionsContainer");
-  const correctSelect = document.getElementById("correctSelect");
 
   let div = document.createElement("div");
   div.className = "option-item";
@@ -83,33 +83,41 @@ function addOption() {
   `;
   container.appendChild(div);
 
-  let opt = document.createElement("option");
-  opt.value = optionCount - 1;
-  opt.textContent = "Option " + optionCount;
-  correctSelect.appendChild(opt);
+  rebuildCorrectSelect();
 }
 
 // Removes an option row
 function removeOption(num) {
   const div = document.getElementById("option_" + num);
   if (!div) return;
-
   div.remove();
-
-  // Rebuild correct answer dropdown cleanly
   rebuildCorrectSelect();
 }
 
 function rebuildCorrectSelect() {
-  const correctSelect = document.getElementById("correctSelect");
-  correctSelect.innerHTML = "";
+  const correctSelectContainer = document.getElementById("correctSelectContainer");
+  correctSelectContainer.innerHTML = "";
 
   const options = document.querySelectorAll("[id^=opt_input_]");
+  if (options.length === 0) return;
+
+  // Add a note for multi-select
+  let note = document.createElement("div");
+  note.className = "muted small";
+  note.style.marginBottom = "6px";
+  note.textContent = "Tick all correct answer(s). For single-answer, tick only one.";
+  correctSelectContainer.appendChild(note);
+
   options.forEach((opt, idx) => {
-    let o = document.createElement("option");
-    o.value = idx;
-    o.textContent = "Option " + (idx + 1);
-    correctSelect.appendChild(o);
+    let label = document.createElement("label");
+    label.style.marginRight = "12px";
+    let checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "correct-checkbox";
+    checkbox.value = idx;
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(" Option " + (idx + 1)));
+    correctSelectContainer.appendChild(label);
   });
 }
 
@@ -130,12 +138,19 @@ function addQuestion() {
     return;
   }
 
-  const correctIndex = Number(document.getElementById("correctSelect").value);
+  // Get all checked correct answers
+  const correctChecks = document.querySelectorAll("#correctSelectContainer .correct-checkbox:checked");
+  let correctIndices = Array.from(correctChecks).map(cb => Number(cb.value));
+
+  if (correctIndices.length === 0) {
+    alert("Please select at least one correct answer.");
+    return;
+  }
 
   let q = {
     question: text,
     options: options,
-    correct: correctIndex
+    correct: correctIndices.length === 1 ? correctIndices[0] : correctIndices
   };
 
   if (topic) q.topic = topic;
@@ -156,7 +171,7 @@ function resetForm() {
   document.getElementById("explanation").value = "";
 
   document.getElementById("optionsContainer").innerHTML = "";
-  document.getElementById("correctSelect").innerHTML = "";
+  document.getElementById("correctSelectContainer").innerHTML = "";
   optionCount = 0;
 }
 

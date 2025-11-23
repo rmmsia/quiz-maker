@@ -9,13 +9,13 @@ This app operates under the assumption that you have been given a set of questio
 A simple form to create questions for your quiz.
 - Question text box
 - Option text box, with the ability to add multiple options as needed
-- Correct answer drop down (**multi-select support coming in future**)
+- Correct answer check boxes
 - Topic and explanation text boxes for tagging and correct answer explanations.
 - Export to JSON
 
 ### Quiz Player
 - Accept JSON quizzes from Quiz Builder
-- Quiz-style answer selection
+- Quiz-style answer selection (single answer radio buttons, multi-select check boxes)
 - Wrong answer explanations
 
 ## Project Structure
