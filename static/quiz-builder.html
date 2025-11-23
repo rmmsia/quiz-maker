@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Quiz JSON Builder</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 30px;
+    max-width: 800px;
+  }
+  h2 {
+    margin-top: 40px;
+  }
+  .question-block {
+    padding: 20px;
+    border: 1px solid #ccc;
+    margin-top: 20px;
+    border-radius: 10px;
+  }
+  .option-item {
+    margin: 5px 0;
+  }
+  button {
+    margin-top: 10px;
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<a href="index.html">← Back to Home</a>
+<h1>Quiz JSON Builder</h1>
+<p>Add questions using the form below. When finished, click **Export JSON**.</p>
+
+<div id="questionForm">
+  <h2>New Question</h2>
+
+  <label>Question text:</label><br>
+  <textarea id="questionText" rows="3" style="width:100%;"></textarea>
+
+  <h3>Options</h3>
+  <div id="optionsContainer"></div>
+  <button onclick="addOption()">Add Option</button>
+
+  <h3>Correct Answer</h3>
+  <select id="correctSelect"></select>
+
+  <h3>Topic (optional)</h3>
+  <input id="topic" type="text" style="width:100%;">
+
+  <h3>Explanation (optional)</h3>
+  <textarea id="explanation" rows="2" style="width:100%;"></textarea>
+
+  <br><br>
+  <button onclick="addQuestion()">Add Question to List</button>
+</div>
+
+<h2>Questions Added</h2>
+<pre id="preview" style="background:#f7f7f7; padding:15px; border-radius:8px; max-height:300px; overflow-y:auto;">[]</pre>
+
+<button onclick="exportJSON()" style="background:#4CAF50; color:white;">Export JSON</button>
+
+<script>
+let questions = [];
+let optionCount = 0;
+
+// Adds a new empty option field
+function addOption() {
+  optionCount++;
+
+  const container = document.getElementById("optionsContainer");
+  const correctSelect = document.getElementById("correctSelect");
+
+  let div = document.createElement("div");
+  div.className = "option-item";
+  div.id = "option_" + optionCount;
+  div.innerHTML = `
+    Option ${optionCount}: <input type="text" id="opt_input_${optionCount}" style="width:70%;">
+    <button onclick="removeOption(${optionCount})">X</button>
+  `;
+  container.appendChild(div);
+
+  let opt = document.createElement("option");
+  opt.value = optionCount - 1;
+  opt.textContent = "Option " + optionCount;
+  correctSelect.appendChild(opt);
+}
+
+// Removes an option row
+function removeOption(num) {
+  const div = document.getElementById("option_" + num);
+  if (!div) return;
+
+  div.remove();
+
+  // Rebuild correct answer dropdown cleanly
+  rebuildCorrectSelect();
+}
+
+function rebuildCorrectSelect() {
+  const correctSelect = document.getElementById("correctSelect");
+  correctSelect.innerHTML = "";
+
+  const options = document.querySelectorAll("[id^=opt_input_]");
+  options.forEach((opt, idx) => {
+    let o = document.createElement("option");
+    o.value = idx;
+    o.textContent = "Option " + (idx + 1);
+    correctSelect.appendChild(o);
+  });
+}
+
+// Add full question object to list
+function addQuestion() {
+  const text = document.getElementById("questionText").value.trim();
+  const topic = document.getElementById("topic").value.trim();
+  const explanation = document.getElementById("explanation").value.trim();
+
+  const optionInputs = document.querySelectorAll("[id^=opt_input_]");
+  let options = [];
+  optionInputs.forEach(o => {
+    if (o.value.trim() !== "") options.push(o.value.trim());
+  });
+
+  if (!text || options.length < 2) {
+    alert("Please provide a question and at least two options.");
+    return;
+  }
+
+  const correctIndex = Number(document.getElementById("correctSelect").value);
+
+  let q = {
+    question: text,
+    options: options,
+    correct: correctIndex
+  };
+
+  if (topic) q.topic = topic;
+  if (explanation) q.explanation = explanation;
+
+  questions.push(q);
+
+  // Refresh preview
+  document.getElementById("preview").textContent = JSON.stringify(questions, null, 2);
+
+  // Reset fields
+  resetForm();
+}
+
+function resetForm() {
+  document.getElementById("questionText").value = "";
+  document.getElementById("topic").value = "";
+  document.getElementById("explanation").value = "";
+
+  document.getElementById("optionsContainer").innerHTML = "";
+  document.getElementById("correctSelect").innerHTML = "";
+  optionCount = 0;
+}
+
+// Export JSON file
+function exportJSON() {
+  const data = JSON.stringify(questions, null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  let a = document.createElement("a");
+  a.href = url;
+  a.download = "quiz.json";
+  a.click();
+}
+</script>
+
+</body>
+</html>

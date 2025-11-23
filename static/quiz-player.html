@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Quiz Player</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width: 800px; margin: 36px auto; padding: 0 16px; color:#111; }
+  h1 { margin-bottom: 6px; }
+  .controls { margin: 12px 0; display:flex; gap:8px; flex-wrap:wrap; }
+  button { padding:8px 12px; border-radius:6px; border:1px solid #bbb; background: #fff; cursor:pointer; }
+  button.primary { background:#1976d2; color:white; border-color:#155fa0; }
+  button.warn { background:#ffecb3; }
+  #fileInput { display:none; }
+  .card { border:1px solid #e0e0e0; padding:16px; border-radius:8px; margin-top:12px; background:#fafafa; }
+  .question { font-weight:600; margin-bottom:10px; }
+  .options { margin-bottom:12px; }
+  .option { margin:6px 0; }
+  .feedback { margin-top:8px; padding:10px; border-radius:6px; }
+  .correct { background:#e8f5e9; border:1px solid #a5d6a7; color:#2e7d32; }
+  .incorrect { background:#ffebee; border:1px solid #ef9a9a; color:#c62828; }
+  #resultSummary { margin-top:16px; }
+  .summary-item { border-bottom:1px dashed #eee; padding:10px 0; }
+  .muted { color:#666; font-size:0.95em; }
+  .small { font-size:0.95em; }
+</style>
+</head>
+<body>
+
+<a href="index.html">← Back to Home</a>
+<h1>Quiz Player</h1>
+<p class="muted">Load a quiz JSON (from your builder's <code>quiz.json</code>) and take the quiz. Supports single or multiple correct answers and shows explanations.</p>
+
+<div class="controls">
+  <input id="fileInput" type="file" accept=".json">
+  <button id="uploadBtn" class="primary">Upload JSON</button>
+  <button id="retryBtn">Retry</button>
+  <button id="showSummaryBtn">Show Summary</button>
+  <div style="margin-left:auto" id="scoreBox">Score: 0 / 0</div>
+</div>
+
+<div id="container">
+  <div id="placeholder" class="card">
+    <div class="muted">No quiz loaded yet. Click <strong>Upload JSON</strong> to load your quiz file.</div>
+    <div class="small" style="margin-top:10px">Expected quiz fields (examples): <code>question, options[], correct (index or [indices]) or answer</code>, optional <code>explanation</code> and <code>topic</code>.</div>
+  </div>
+</div>
+
+<div id="resultSummary"></div>
+
+<script>
+/*
+Quiz Player v2
+- Accepts JSON array of questions.
+- Normalizes "correct" or "answer" to internal .correct (array or number).
+- Supports single (radio) or multiple (checkbox) correct answers.
+- Shows immediate feedback and explanations.
+- Retry and Upload new file supported.
+*/
+
+let rawQuestions = []; // original loaded data
+let questions = []; // normalized (with .correct as array of indices)
+let currentIndex = 0;
+let score = 0;
+let attempts = []; // per-question record {selected: [...], correct: [...], isCorrect, explanation}
+
+const fileInput = document.getElementById('fileInput');
+const uploadBtn = document.getElementById('uploadBtn');
+const retryBtn = document.getElementById('retryBtn');
+const container = document.getElementById('container');
+const scoreBox = document.getElementById('scoreBox');
+const showSummaryBtn = document.getElementById('showSummaryBtn');
+const resultSummary = document.getElementById('resultSummary');
+
+uploadBtn.onclick = () => fileInput.click();
+fileInput.addEventListener('change', handleFile, false);
+retryBtn.addEventListener('click', retryQuiz, false);
+showSummaryBtn.addEventListener('click', showSummary, false);
+
+function handleFile(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      rawQuestions = JSON.parse(reader.result);
+      if (!Array.isArray(rawQuestions)) throw new Error("JSON must be an array of questions");
+      prepareQuestions();
+      startQuiz();
+    } catch (err) {
+      alert("Failed to parse JSON: " + err.message);
+    }
+  };
+  reader.readAsText(f);
+}
+
+// Normalize questions into internal format
+function prepareQuestions() {
+  questions = rawQuestions.map((q, i) => {
+    const normalized = {
+      id: i,
+      question: q.question || q.text || `Question ${i+1}`,
+      options: Array.isArray(q.options) ? q.options : (q.choices || []),
+      explanation: q.explanation || q.explain || "",
+      topic: q.topic || q.tag || ""
+    };
+
+    // Accept 'correct' or 'answer'
+    let correctRaw = q.correct !== undefined ? q.correct : (q.answer !== undefined ? q.answer : null);
+
+    // If there's a boolean 'is_correct' style (rare), leave null
+    if (correctRaw === null) {
+      normalized.correct = []; // no correct specified
+    } else if (Array.isArray(correctRaw)) {
+      // array of indices (0-based)
+      normalized.correct = correctRaw.map(x => Number(x));
+    } else {
+      // single index (string or number). convert to number
+      normalized.correct = [Number(correctRaw)];
+    }
+
+    // If options length is 0, try to parse from key-value like option_a... (older CSV imports)
+    if (normalized.options.length === 0) {
+      const opts = [];
+      ['option_a','option_b','option_c','option_d','opt1','opt2','opt3','opt4'].forEach(k => {
+        if (q[k]) opts.push(q[k]);
+      });
+      normalized.options = opts;
+    }
+
+    return normalized;
+  });
+}
+
+// Start a quiz run on the prepared questions
+function startQuiz() {
+  if (!questions.length) {
+    alert("No questions found in file.");
+    return;
+  }
+  currentIndex = 0;
+  score = 0;
+  attempts = [];
+  resultSummary.innerHTML = "";
+  renderQuestion();
+  updateScore();
+}
+
+// Retry same quiz (reset progress)
+function retryQuiz() {
+  if (!questions.length) return;
+  if (!confirm("Restart quiz from the beginning?")) return;
+  currentIndex = 0;
+  score = 0;
+  attempts = [];
+  resultSummary.innerHTML = "";
+  renderQuestion();
+  updateScore();
+}
+
+function updateScore() {
+  scoreBox.textContent = `Score: ${score} / ${questions.length}`;
+}
+
+function renderQuestion() {
+  const q = questions[currentIndex];
+  container.innerHTML = ''; // clear
+
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  const header = document.createElement('div');
+  header.className = 'question';
+  header.textContent = `Q${currentIndex + 1}. ${q.question}`;
+  card.appendChild(header);
+
+  // Topic
+  if (q.topic) {
+    const t = document.createElement('div');
+    t.className = 'muted small';
+    t.textContent = `Topic: ${q.topic}`;
+    card.appendChild(t);
+  }
+
+  // Options
+  const optsDiv = document.createElement('div');
+  optsDiv.className = 'options';
+  const multiple = (q.correct && q.correct.length > 1);
+  q.options.forEach((opt, i) => {
+    const div = document.createElement('div');
+    div.className = 'option';
+
+    const input = document.createElement('input');
+    input.type = multiple ? 'checkbox' : 'radio';
+    input.name = 'opt';
+    input.value = i;
+    input.id = `opt-${i}`;
+    input.addEventListener('change', () => {
+      // enable submit
+      submitBtn.disabled = !hasSelection();
+    });
+
+    const label = document.createElement('label');
+    label.htmlFor = `opt-${i}`;
+    label.textContent = ' ' + opt;
+
+    div.appendChild(input);
+    div.appendChild(label);
+    optsDiv.appendChild(div);
+  });
+  card.appendChild(optsDiv);
+
+  // Submit button
+  const submitBtn = document.createElement('button');
+  submitBtn.textContent = 'Submit Answer';
+  submitBtn.className = 'primary';
+  submitBtn.disabled = true;
+  submitBtn.onclick = () => handleSubmit(multiple);
+  card.appendChild(submitBtn);
+
+  // Small hint about multiple answers
+  if (multiple) {
+    const hint = document.createElement('div');
+    hint.className = 'muted small';
+    hint.style.marginTop = '8px';
+    hint.textContent = 'There may be multiple correct answers — pick all that apply.';
+    card.appendChild(hint);
+  }
+
+  // Controls: skip / end
+  const ctrl = document.createElement('div');
+  ctrl.style.marginTop = '12px';
+  const skipBtn = document.createElement('button');
+  skipBtn.textContent = 'Skip';
+  skipBtn.onclick = () => {
+    // record skipped as incorrect (no selection)
+    recordAttempt([]);
+    nextOrFinish();
+  };
+  ctrl.appendChild(skipBtn);
+  card.appendChild(ctrl);
+
+  container.appendChild(card);
+
+  function hasSelection() {
+    if (multiple) {
+      return !!Array.from(document.querySelectorAll('input[name="opt"]:checked')).length;
+    } else {
+      return !!document.querySelector('input[name="opt"]:checked');
+    }
+  }
+}
+
+function handleSubmit(multiple) {
+  const selectedEls = Array.from(document.querySelectorAll('input[name="opt"]:checked'));
+  const selected = selectedEls.map(el => Number(el.value));
+  recordAttempt(selected);
+  showFeedbackForCurrent();
+}
+
+function recordAttempt(selected) {
+  const q = questions[currentIndex];
+  const correctArr = q.correct || [];
+  // compare sets
+  const isCorrect = compareSelectedToCorrect(selected, correctArr);
+
+  // increment score if correct
+  if (isCorrect) score++;
+
+  attempts[currentIndex] = {
+    selected: selected,
+    correct: correctArr,
+    isCorrect: isCorrect,
+    explanation: q.explanation || ""
+  };
+
+  updateScore();
+}
+
+function compareSelectedToCorrect(sel, corr) {
+  // normalize numbers
+  const s = sel.map(Number).sort((a,b)=>a-b);
+  const c = (corr || []).map(Number).sort((a,b)=>a-b);
+  if (s.length !== c.length) return false;
+  for (let i=0;i<s.length;i++) if (s[i] !== c[i]) return false;
+  return true;
+}
+
+function showFeedbackForCurrent() {
+  const q = questions[currentIndex];
+  const attempt = attempts[currentIndex];
+  // clear container and show feedback
+  container.innerHTML = '';
+
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  const head = document.createElement('div');
+  head.className = 'question';
+  head.textContent = `Q${currentIndex + 1}. ${q.question}`;
+  card.appendChild(head);
+
+  // Show options with marking
+  const optsDiv = document.createElement('div');
+  optsDiv.className = 'options';
+  q.options.forEach((opt, i) => {
+    const div = document.createElement('div');
+    div.className = 'option small';
+    // marking
+    const isSelected = (attempt.selected || []).includes(i);
+    const isCorrect = (attempt.correct || []).includes(i);
+
+    let mark = '';
+    if (isCorrect && isSelected) mark = '✅ (your choice, correct)';
+    else if (isCorrect) mark = '✅ (correct)';
+    else if (isSelected) mark = '❌ (your choice)';
+    div.textContent = `• ${opt} ${mark ? ' — ' + mark : ''}`;
+    optsDiv.appendChild(div);
+  });
+  card.appendChild(optsDiv);
+
+  // Feedback banner
+  const fb = document.createElement('div');
+  fb.className = 'feedback ' + (attempt.isCorrect ? 'correct' : 'incorrect');
+  fb.textContent = attempt.isCorrect ? 'Correct ✓' : 'Incorrect ✕';
+  card.appendChild(fb);
+
+  // Explanation
+  if (attempt.explanation) {
+    const ex = document.createElement('div');
+    ex.style.marginTop = '10px';
+    ex.innerHTML = `<strong>Explanation:</strong> <div class="muted small">${escapeHtml(attempt.explanation)}</div>`;
+    card.appendChild(ex);
+  }
+
+  // Next button or Finish
+  const nextBtn = document.createElement('button');
+  nextBtn.textContent = currentIndex < questions.length - 1 ? 'Next Question' : 'Finish Quiz';
+  nextBtn.onclick = () => {
+    nextOrFinish();
+  };
+  nextBtn.style.marginTop = '12px';
+  card.appendChild(nextBtn);
+
+  container.appendChild(card);
+  updateScore();
+}
+
+function nextOrFinish() {
+  if (currentIndex < questions.length - 1) {
+    currentIndex++;
+    renderQuestion();
+  } else {
+    showFinalResults();
+  }
+}
+
+// Show final results summary
+function showFinalResults() {
+  container.innerHTML = '';
+  const card = document.createElement('div');
+  card.className = 'card';
+  const title = document.createElement('div');
+  title.innerHTML = `<strong>Quiz complete!</strong> Score: ${score} / ${questions.length}`;
+  card.appendChild(title);
+
+  // List wrong questions with explanation
+  const wrong = [];
+  for (let i=0;i<questions.length;i++) {
+    const a = attempts[i];
+    if (!a || !a.isCorrect) wrong.push({i, q: questions[i], attempt: a || {selected:[], correct: questions[i].correct, explanation: questions[i].explanation}});
+  }
+
+  const detail = document.createElement('div');
+  detail.style.marginTop = '12px';
+  if (!wrong.length) {
+    detail.innerHTML = '<div class="muted">Nice! You got everything correct.</div>';
+  } else {
+    detail.innerHTML = `<div class="muted">You missed ${wrong.length} question(s). Review them below:</div>`;
+    wrong.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'summary-item';
+      const your = (item.attempt.selected || []).map(i => item.q.options[i]).join(', ') || '(no answer)';
+      const corr = (item.attempt.correct || []).map(i => item.q.options[i]).join(', ');
+      div.innerHTML = `
+        <div><strong>Q${item.i+1}.</strong> ${escapeHtml(item.q.question)}</div>
+        <div class="small">Your answer: ${escapeHtml(your)}</div>
+        <div class="small">Correct answer: ${escapeHtml(corr)}</div>
+        ${item.attempt.explanation ? `<div class="small" style="margin-top:6px;"><strong>Explanation:</strong> ${escapeHtml(item.attempt.explanation)}</div>` : ''}
+      `;
+      detail.appendChild(div);
+    });
+  }
+  card.appendChild(detail);
+
+  // Buttons: Retry / Upload new
+  const ctrl = document.createElement('div');
+  ctrl.style.marginTop = '12px';
+  const retry = document.createElement('button');
+  retry.textContent = 'Retry Quiz';
+  retry.onclick = () => retryQuiz();
+  ctrl.appendChild(retry);
+
+  const newbtn = document.createElement('button');
+  newbtn.textContent = 'Upload New File';
+  newbtn.style.marginLeft = '8px';
+  newbtn.onclick = () => fileInput.click();
+  ctrl.appendChild(newbtn);
+
+  card.appendChild(ctrl);
+  container.appendChild(card);
+
+  // Scroll to results
+  card.scrollIntoView({behavior:'smooth'});
+  updateScore();
+}
+
+// Show summary (quick view of all Qs with correctness)
+function showSummary() {
+  if (!questions.length) return alert("No quiz loaded.");
+  resultSummary.innerHTML = '';
+  const title = document.createElement('div');
+  title.innerHTML = `<strong>Progress summary</strong> — ${score} / ${questions.length}`;
+  resultSummary.appendChild(title);
+
+  const list = document.createElement('div');
+  list.style.marginTop = '10px';
+  questions.forEach((q, idx) => {
+    const rec = attempts[idx];
+    const ok = rec && rec.isCorrect;
+    const div = document.createElement('div');
+    div.className = 'summary-item';
+    div.innerHTML = `<div><strong>Q${idx+1}.</strong> ${escapeHtml(q.question)}</div>
+      <div class="small">Status: ${ok ? '<span style="color:green">Correct</span>' : '<span style="color:red">Not answered / Incorrect</span>'}</div>`;
+    if (rec && rec.explanation) div.innerHTML += `<div class="small">Explanation: ${escapeHtml(rec.explanation)}</div>`;
+    list.appendChild(div);
+  });
+  resultSummary.appendChild(list);
+  resultSummary.scrollIntoView({behavior:'smooth'});
+}
+
+// small helper to avoid HTML injection
+function escapeHtml(t) {
+  if (!t && t !== 0) return '';
+  return String(t).replace(/[&<>"']/g, function(m) {
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]);
+  });
+}
+
+// allow clicking upload to open file dialog
+fileInput.addEventListener('change', () => {
+  // nothing here, handled in handleFile
+});
+</script>
+
+</body>
+</html>
