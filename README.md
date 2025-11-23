@@ -4,6 +4,8 @@ A tiny personal project I made to put the in-class quizzes that my professors ho
 
 This app operates under the assumption that you have been given a set of questions and their accompanying answers, and it is simpler to use than some paid options on the market that drop features on you that you will never use. This is self-quizzing without all the bells and whistles.
 
+Accessible at https://rmmsia.github.io/quiz-maker
+
 ## Features
 ### Quiz Builder
 A simple form to create questions for your quiz.
